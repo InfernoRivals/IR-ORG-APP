@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Inferno Rivals | v7.0 Archive System</title>
+    <style>
+        :root {
+            --bg: #050505; --card: #111214; --red: #ff3131;
+            --text: #ffffff; --dim: #707070; --green: #00ff41; --gold: #f1c40f;
+        }
+        body, html { margin: 0; padding: 0; width: 100%; min-height: 100vh; background: var(--bg); color: var(--text); font-family: sans-serif; }
+        .hidden { display: none !important; }
+        .container { display: flex; flex-direction: column; align-items: center; padding: 20px; width: 100%; box-sizing: border-box; }
+        .header { position: fixed; top: 0; left:0; width: 100%; height: 60px; background: #000; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; box-sizing: border-box; z-index: 1000; border-bottom: 1px solid #222; }
+        .bento { background: var(--card); border: 1px solid #222; border-radius: 15px; padding: 20px; margin-bottom: 20px; width: 100%; max-width: 500px; box-sizing: border-box; }
+        .input-box { width: 100%; padding: 14px; background: #000; border: 1px solid #333; border-radius: 8px; color: white; margin-bottom: 10px; box-sizing: border-box; font-size: 16px; }
+        .btn-red { width: 100%; padding: 16px; background: var(--red); color: white; border: none; border-radius: 8px; font-weight: 900; cursor: pointer; text-transform: uppercase; }
+        .reg-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #000; margin-bottom: 8px; border-radius: 10px; border: 1px solid #222; }
+        .log-entry { font-size: 11px; border-bottom: 1px solid #222; padding: 8px 0; display: flex; justify-content: space-between; }
+        .dev-badge { background: var(--gold); color: black; border: none; padding: 4px 8px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="nav" class="header hidden">
+        <span style="color: var(--red); font-weight: 900;">INFERNO HQ</span>
+        <div>
+            <button id="dev-toggle" class="dev-badge hidden">DEV MODE: OFF</button>
+            <button id="logout-btn" style="background:none; border:none; color:var(--dim); cursor:pointer; margin-left:10px; font-weight:bold;">EXIT</button>
+        </div>
+    </div>
+
+    <div id="view-login" class="bento" style="margin-top: 15vh; text-align: center;">
+        <h2 style="color: var(--red);">LOGIN</h2>
+        <input type="email" id="email" class="input-box" placeholder="Email">
+        <input type="password" id="pass" class="input-box" placeholder="Password">
+        <button id="do-login" class="btn-red">Login</button>
+        <p id="login-err" style="color: var(--red); font-size: 12px; margin-top: 10px;"></p>
+    </div>
+
+    <div id="view-member" class="hidden" style="margin-top:80px; width:100%; max-width:400px;">
+        <div class="bento" style="text-align: center;">
+            <h2 id="m-name">PLAYER</h2>
+            <p id="m-status" style="font-weight: bold; color: var(--dim);">OFFLINE</p>
+            <button id="m-punch-btn" class="btn-red">Punch In</button>
+        </div>
+    </div>
+
+    <div id="view-admin" class="hidden" style="width:100%; max-width:550px; margin-top: 80px;">
+        <div class="bento">
+            <h3 style="color:var(--red); margin-top:0;">ADD PLAYER</h3>
+            <input type="text" id="g-name" class="input-box" placeholder="Full Name">
+            <input type="email" id="g-email" class="input-box" placeholder="Email">
+            <input type="text" id="g-pass" class="input-box" placeholder="Password">
+            <button id="do-create" class="btn-red">Create Account</button>
+        </div>
+        <div class="bento">
+            <h3 style="color:var(--gold); margin-top:0;">ACTIVITY LOG (12H)</h3>
+            <div id="activity-log"></div>
+        </div>
+        <div class="bento">
+            <h3 style="color:var(--red); margin-top:0;">PLAYER REGISTRY</h3>
+            <div id="registry-list"></div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, onSnapshot, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCai5KkljytAcGAV9fZIzn1lanK0w4Dr8I",
+        authDomain: "player-registration-399c9.firebaseapp.com",
+        projectId: "player-registration-399c9",
+        appId: "1:720387122234:web:58a820e20d36ade86a0103"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const ADMIN_EMAIL = "admin1@fforg.com"; 
+    let devMode = false;
+    let currentUserData = null;
+
+    const formatTime = (ts) => {
+        if (!ts) return "--:--";
+        return ts.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    };
+
+    // LOGIN
+    document.getElementById('do-login').onclick = () => {
+        const e = document.getElementById('email').value.trim();
+        const p = document.getElementById('pass').value;
+        signInWithEmailAndPassword(auth, e, p).catch(err => {
+            document.getElementById('login-err').innerText = "Failed: " + err.code;
+        });
+    };
+
+    // PUNCH BUTTON
+    document.getElementById('m-punch-btn').onclick = async () => {
+        if (!auth.currentUser || !currentUserData) return;
+        const isEntering = !currentUserData.isPunchedIn;
+        try {
+            await updateDoc(doc(db, "users", auth.currentUser.uid), {
+                isPunchedIn: isEntering,
+                [isEntering ? 'punchInTime' : 'punchOutTime']: serverTimestamp()
+            });
+        } catch (e) { console.error(e); }
+    };
+
+    // ROUTER
+    onAuthStateChanged(auth, (user) => {
+        const ui = { login: document.getElementById('view-login'), member: document.getElementById('view-member'), admin: document.getElementById('view-admin'), nav: document.getElementById('nav'), dev: document.getElementById('dev-toggle') };
+        if (user) {
+            ui.login.classList.add('hidden');
+            ui.nav.classList.remove('hidden');
+            if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+                ui.admin.classList.remove('hidden');
+                ui.member.classList.add('hidden');
+                ui.dev.classList.remove('hidden');
+                loadRegistry();
+                loadLogs();
+            } else {
+                ui.member.classList.remove('hidden');
+                ui.admin.classList.add('hidden');
+                ui.dev.classList.add('hidden');
+                onSnapshot(doc(db, "users", user.uid), (s) => { 
+                    if(s.exists()) { currentUserData = s.data(); renderCard(currentUserData); }
+                });
+            }
+        } else {
+            ui.login.classList.remove('hidden');
+            ui.nav.classList.add('hidden');
+            ui.admin.classList.add('hidden');
+            ui.member.classList.add('hidden');
+        }
+    });
+
+    function renderCard(data) {
+        document.getElementById('m-name').innerText = data.name;
+        const btn = document.getElementById('m-punch-btn');
+        const status = document.getElementById('m-status');
+        btn.innerText = data.isPunchedIn ? "Punch Out" : "Punch In";
+        status.innerText = data.isPunchedIn ? "STATUS: ONLINE" : "STATUS: OFFLINE";
+        status.style.color = data.isPunchedIn ? "var(--green)" : "var(--dim)";
+    }
+
+    function loadRegistry() {
+        onSnapshot(collection(db, "users"), (snap) => {
+            const list = document.getElementById('registry-list');
+            list.innerHTML = "";
+            snap.forEach(uDoc => {
+                const p = uDoc.data();
+                if (p.email === ADMIN_EMAIL) return;
+                const item = document.createElement('div');
+                item.className = "reg-item";
+                let actionHtml = devMode ? `<div><button onclick="window.editP('${uDoc.id}')" style="background:#333;color:white;border:none;padding:5px;border-radius:4px;cursor:pointer;">EDIT</button><button onclick="window.archiveP('${uDoc.id}')" style="background:var(--red);color:white;border:none;padding:5px;border-radius:4px;cursor:pointer;margin-left:5px;">DEL</button></div>` : `<span style="color:${p.isPunchedIn ? 'var(--green)' : '#333'}">●</span>`;
+                item.innerHTML = `<span><b>${p.name}</b></span> ${actionHtml}`;
+                list.appendChild(item);
+            });
+        });
+    }
+
+    function loadLogs() {
+        onSnapshot(collection(db, "users"), (snap) => {
+            const logBox = document.getElementById('activity-log');
+            logBox.innerHTML = "";
+            snap.forEach(uDoc => {
+                const p = uDoc.data();
+                if (p.email === ADMIN_EMAIL || (!p.punchInTime && !p.punchOutTime)) return;
+                const row = document.createElement('div');
+                row.className = "log-entry";
+                row.innerHTML = `<span>${p.name}</span> <span>In: ${formatTime(p.punchInTime)} | Out: ${formatTime(p.punchOutTime)}</span>`;
+                logBox.appendChild(row);
+            });
+        });
+    }
+
+    // ARCHIVE LOGIC (Delete from grid, move to storage)
+    window.archiveP = async (id) => {
+        if(confirm("Move this player to Archive storage?")) {
+            const userRef = doc(db, "users", id);
+            const userSnap = await getDoc(userRef);
+            
+            if (userSnap.exists()) {
+                const userData = userSnap.data();
+                // 1. Save to archive collection
+                await setDoc(doc(db, "archive", id), {
+                    ...userData,
+                    archivedAt: serverTimestamp()
+                });
+                // 2. Delete from main users collection
+                await deleteDoc(userRef);
+                alert("Player moved to Archive collection.");
+            }
+        }
+    };
+
+    window.editP = async (id) => {
+        const n = prompt("New Name?");
+        if(n) await updateDoc(doc(db, "users", id), { name: n });
+    };
+
+    document.getElementById('dev-toggle').onclick = () => {
+        devMode = !devMode;
+        document.getElementById('dev-toggle').innerText = devMode ? "DEV MODE: ON" : "DEV MODE: OFF";
+        document.getElementById('dev-toggle').style.background = devMode ? "white" : "var(--gold)";
+        loadRegistry();
+    };
+
+    document.getElementById('do-create').onclick = async () => {
+        const n = document.getElementById('g-name').value, e = document.getElementById('g-email').value, p = document.getElementById('g-pass').value;
+        try {
+            const res = await createUserWithEmailAndPassword(auth, e, p);
+            await setDoc(doc(db, "users", res.user.uid), { name: n, email: e, isPunchedIn: false });
+            alert("Player Created"); signOut(auth);
+        } catch (err) { alert(err.message); }
+    };
+
+    document.getElementById('logout-btn').onclick = () => signOut(auth);
+</script>
+</body>
+</html>
